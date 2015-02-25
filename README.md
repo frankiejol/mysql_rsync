@@ -13,7 +13,7 @@ Example usages can be:
 
 ## Usage
 
-  mysql_rsync.pl [--help] [--verbose] [--mysqldump=/usr/bin/mysqldump] [--src-host=localhost] --src-db=DB [--src-user=username] [--src-pass=pass] [--dst-host=HOST] [--dst-db=DB] [--dst-user=username] [--dst-pass=pass] [table1 ... tablen]
+ ``` mysql_rsync.pl [--help] [--verbose] [--mysqldump=/usr/bin/mysqldump] [--src-host=localhost] --src-db=DB [--src-user=username] [--src-pass=pass] [--dst-host=HOST] [--dst-db=DB] [--dst-user=username] [--dst-pass=pass] [table1 ... tablen]```
 
 ## Requirements
 
@@ -25,6 +25,14 @@ It requires perl and some modules, it should run fine on any platform.
 ### Debian based dists
 Perl should be in your linux distro, you can install the requirements doing:
 
-  # apt-get install libdbi-perl librun-ipc-perl
+  ```# apt-get install libdbi-perl librun-ipc-perl ```
 
 
+## Known Bugs and issues
+
+- Changes in table definitions will be missed
+- It requires an integer primary key in each table that needs to be rsynced
+
+## License
+
+GPL v2 (c) 2015 Francesc Guasch Ortiz <frankie@telecos.upc.edu>
