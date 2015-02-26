@@ -84,6 +84,17 @@ sub test_simple {
     ok(select_row($DST_DBH,%value));
 }
 
+sub test_inc_one {
+    test_simple();
+    my %value = (name => 'foo');
+    ok(!select_row($DST_DBH,%value));
+
+    insert_row($SRC_DBH, %value);
+    run_rsync($TABLE_TEST);
+    ok(select_row($DST_DBH,%value));
+
+}
+
 SKIP: {
     eval { $SRC_DBH = DBI->connect("DBI:mysql:$SRC_DB",undef,undef
             ,{RaiseError => 0, PrintError => 0}) };
@@ -96,6 +107,7 @@ SKIP: {
     skip("Can't connect to $DST_DB",3) if !$DST_DBH|| $@ || $DST_DBH->err;
 
     test_simple();
+    test_inc_one();
 };
 
 done_testing();
