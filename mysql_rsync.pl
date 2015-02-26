@@ -26,9 +26,10 @@ $USAGE .=" [--help] [--verbose] [--mysqldump=$MYSQLDUMP] [--src-host=$SRC_HOST] 
     ." [table1 ... tablen]";
 
 my $help;
-my $VERBOSE;
+my ($VERBOSE, $DEBUG);
 GetOptions(
                help => \$help
+             ,debug => \$DEBUG
           ,verbose  => \$VERBOSE
     ,     mysqldump => \$MYSQLDUMP
     ,     'limit=s' => \$LIMIT
@@ -94,7 +95,8 @@ sub maxim_id {
         $sth = $dbh->prepare($query);
         $sth->execute;
         ($max_id) = $sth->fetchrow;
-        print "\t".($max_id or '<NULL>')."\n"   if $VERBOSE;
+        $max_id = 0 if !defined $max_id;
+        print "\t$max_id\n"   if $VERBOSE;
         $sth->finish;
     };
     create_table($table) if $@ && $@ =~ /Table.*doesn't exist/;
@@ -109,6 +111,8 @@ sub sth_insert {
         .join(" , ",map { '?' } keys %$row)
         ." )";
     my $sth = $dbh->prepare($query);
+    insert_row($sth,$row);
+    return $sth;
 }
 
 sub search_tables {
@@ -141,6 +145,18 @@ sub search_tables {
     $sth->finish;
 }
 
+sub insert_row {
+    my ($sth_insert, $row) = @_;
+    eval {
+        $sth_insert->execute(map { $row->{$_} } sort keys %$row) ;
+    };
+    if ($@ && $@ !~ /Duplicate entry/) {
+        warn $sth_insert->err." ".$sth_insert->errstr." ".$@;
+        exit;
+    }
+
+}
+
 sub dump_wild {
     my ($table,$id) = @_;
     $id = 0 if !defined $id;
@@ -168,15 +184,9 @@ sub dump_wild {
         my $sth_insert = sth_insert($dbh_dst, $table, $row);
         $dbh_dst->do("SET autocommit=0");
         while ( $row = $sth->fetchrow_hashref ) {
-#        print "going to insert $table $TABLES{$table} : "
-#            ."$row->{$TABLES{$table}} ? \n"; 
-            eval {
-                $sth_insert->execute(map { $row->{$_} } sort keys %$row) ;
-            };
-            if ($@ && $@ !~ /Duplicate entry/) {
-                warn $@;
-                exit;
-            }
+            print "going to insert $table $TABLE{$table} : "
+                ."$row->{$TABLE{$table}} ? \n" if $DEBUG;
+            insert_row($sth_insert, $row);
             $n++;
             if ( time - $time0 > 10) {
                 $time0 = time;
