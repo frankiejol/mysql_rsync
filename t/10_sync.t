@@ -82,10 +82,12 @@ sub test_simple {
 
     run_rsync($TABLE_TEST);
     ok(select_row($DST_DBH,%value));
+
+    return %value;
 }
 
 sub test_inc_one {
-    test_simple();
+    my %first_value = test_simple();
     my %value = (name => 'foo');
     ok(!select_row($DST_DBH,%value));
 
@@ -93,6 +95,7 @@ sub test_inc_one {
     run_rsync($TABLE_TEST);
     ok(select_row($DST_DBH,%value));
 
+    ok(select_row($DST_DBH,%first_value));
 }
 
 SKIP: {
