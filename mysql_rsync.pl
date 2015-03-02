@@ -88,7 +88,6 @@ sub ask_password {
     $DST_PASS = ReadLine(0);
     chomp $DST_PASS;
     ReadMode(0);
-    print "\n";
 }
 
 sub create_table {
@@ -192,16 +191,17 @@ sub insert_row {
     print "INSERT ROW ".join(" ",%$row)."\n" if $DEBUG;
     return if $DRY_RUN;
 
+    my $ok = 0;
     eval {
         my @row = map { $row->{$_} } sort keys %$row;
         push @row,($row->{$TABLE{$table}->{id}})    if $update;
-        $sth_insert->execute(@row ) ;
+        $sth_insert->execute(@row ) && $ok++;
     };
     if ($@ && $@ !~ /Duplicate entry/) {
         warn $sth_insert->err." ".$sth_insert->errstr." ".$@;
         exit;
     }
-
+    return $ok;
 }
 
 sub dump_wild {
@@ -222,6 +222,7 @@ sub dump_wild {
         my $sth = $dbh_src->prepare("SELECT * FROM $table "
         ." WHERE $field >= ? "
         ." LIMIT ".($LIMIT+1));
+        print "SELECT FROM $table WHERE $field >= $id\n"    if $DEBUG;
         $sth->execute($id);
         $old_id = $id;
 
@@ -233,8 +234,8 @@ sub dump_wild {
         my $sth_insert = sth_insert($dbh_dst, $table, $row, $update);
         $dbh_dst->do("SET autocommit=0");
         while ( $row = $sth->fetchrow_hashref ) {
-            insert_row($sth_insert, $row, $update, $table);
-            $n++;
+            insert_row($sth_insert, $row, $update, $table)
+                && $n++;
             if ( time - $time0 > 10) {
                 $time0 = time;
                 my $pc='';
@@ -251,7 +252,8 @@ sub dump_wild {
         $sth ->finish;
         $dbh_dst->do("COMMIT");
 #        return if $id <= $old_id or $n < $LIMIT;
-        return if $n < $LIMIT;
+        print "$n inserted in $table\n";
+        return if $n < $LIMIT || $id eq $old_id;
     }
 }
 
