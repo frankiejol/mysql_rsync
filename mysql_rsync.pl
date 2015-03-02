@@ -6,6 +6,8 @@ use strict;
 use DBI;
 use IPC::Run qw(run);
 use Getopt::Long;
+use Term::ReadKey;
+
 
 my %TABLE;
 
@@ -26,10 +28,11 @@ $USAGE .=" [--help] [--verbose] [--mysqldump=$MYSQLDUMP]"
     ." [--src-host=$SRC_HOST] --src-db=DB"
     ." [--src-user=username] [--src-pass=pass] [--dst-host=HOST] [--dst-db=DB]"
     ." [--dst-user=username] [--dst-pass=pass]"
+    ." [--P]"
     ." [table1 ... tablen]";
 
 my $help;
-my ($VERBOSE, $DEBUG);
+my ($VERBOSE, $DEBUG, $ASK_PASSWORD);
 GetOptions(
                help => \$help
              ,debug => \$DEBUG
@@ -45,15 +48,24 @@ GetOptions(
     ,    'dst-db=s' => \$DST_DB
     ,  'dst-user=s' => \$DST_USER
     ,  'dst-pass=s' => \$DST_PASS
+    ,           P  => \$ASK_PASSWORD
 ) or exit -1;
 
 $DST_DB = $SRC_DB	if $SRC_HOST ne $DST_HOST && !$DST_DB;
-$DST_PASS = $SRC_PASS	if $SRC_HOST eq $DST_HOST && !$DST_PASS;
 
+if ( $ASK_PASSWORD && ($SRC_PASS || $DST_PASS) ) {
+    warn "ERROR: --P will ask for password, do not put it in the arguments\n"
+        ."$USAGE\n";
+    exit -1;
+}
 if ( $help || !$SRC_DB || !$DST_DB ) {
     print "$USAGE\n";
     exit;
 }
+ask_password() if $ASK_PASSWORD;
+
+$DST_PASS = $SRC_PASS	if $SRC_HOST eq $DST_HOST && !$DST_PASS;
+$DST_USER = $SRC_USER	if $SRC_HOST eq $DST_HOST && !$DST_USER;
 
 $|=1;
 
@@ -64,6 +76,17 @@ my $dbh_dst = DBI->connect("DBI:mysql:host=$DST_HOST;database=$DST_DB"
 
 ##########################################
 
+sub ask_password {
+    print "Enter source password :";
+    ReadMode('noecho');
+    $SRC_PASS = ReadLine(0);
+    chomp $SRC_PASS;
+
+    print "\nEnter destination password :";
+    $DST_PASS = ReadLine(0);
+    chomp $DST_PASS;
+    ReadMode(0);
+}
 
 sub create_table {
     my $table = shift;
