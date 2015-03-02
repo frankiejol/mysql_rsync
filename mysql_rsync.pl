@@ -88,6 +88,7 @@ sub ask_password {
     $DST_PASS = ReadLine(0);
     chomp $DST_PASS;
     ReadMode(0);
+    print "\n";
 }
 
 sub create_table {
