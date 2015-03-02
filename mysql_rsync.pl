@@ -70,9 +70,11 @@ $DST_USER = $SRC_USER	if $SRC_HOST eq $DST_HOST && !$DST_USER;
 $|=1;
 
 my $dbh_src = DBI->connect("DBI:mysql:host=$SRC_HOST;database=$SRC_DB"
-    ,$SRC_USER, $SRC_PASS);
+    ,$SRC_USER, $SRC_PASS,{ RaiseError => 1, PrintError => 0})
+        or exit -2;
 my $dbh_dst = DBI->connect("DBI:mysql:host=$DST_HOST;database=$DST_DB"
-    ,$DST_USER, $DST_PASS,{RaiseError => 1, PrintError => 0 });
+    ,$DST_USER, $DST_PASS,{RaiseError => 1, PrintError => 0 })
+        or exit -2;
 
 ##########################################
 
