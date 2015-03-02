@@ -19,7 +19,9 @@ sub create_table_test {
     my $sth;
     $sth = $dbh->do("DROP TABLE $TABLE_TEST"); 
     $sth = $dbh->do("CREATE TABLE $TABLE_TEST "
-        ."(id int auto_increment primary key, name char(20), ts timestamp)");
+        ."(id int auto_increment primary key, name char(20), ts timestamp"
+        ." , index(ts) "
+        .")") or die $dbh->errstr;
 }
 
 sub drop_table_test {
@@ -88,12 +90,15 @@ sub test_simple {
 }
 
 sub test_update {
+    my $sleep = (shift or 0);
     my %value = test_simple();
 
     my $row_orig = select_row($SRC_DBH,name => $value{name});
     my $sth = $SRC_DBH->prepare ("UPDATE $TABLE_TEST SET name=? WHERE id=?");
     ok($sth,$SRC_DBH->errstr) or return;
     my $new_name = 'dr. bishop';
+
+    sleep $sleep;
     $sth->execute($new_name,$row_orig->{id});
 
     my $row = select_row($SRC_DBH,name => $new_name);
@@ -104,8 +109,38 @@ sub test_update {
     run_rsync($TABLE_TEST);
     ok(!select_row($DST_DBH,%value),"Expecting different than ".join(" ",%value));
     ok(select_row($DST_DBH,name => $new_name),"Expecting name = '$new_name'");
-
 }
+
+sub test_update_two {
+    my $sleep = (shift or 0);
+    my %value = test_simple();
+
+    my $row_orig = select_row($SRC_DBH,name => $value{name});
+    
+    my %value2= ( name => 'dunham' );
+    insert_row($SRC_DBH, %value2);
+    ok(select_row($SRC_DBH,%value));
+    ok(select_row($SRC_DBH,%value2));
+    ok(!select_row($DST_DBH,%value2));
+
+    my $sth = $SRC_DBH->prepare ("UPDATE $TABLE_TEST SET name=? WHERE id=?");
+    ok($sth,$SRC_DBH->errstr) or return;
+    my $new_name = 'dr. bishop';
+
+    sleep $sleep;
+    $sth->execute($new_name,$row_orig->{id});
+
+    my $row = select_row($SRC_DBH,name => $new_name);
+    ok($row->{name} eq $new_name,"Expecting '$new_name', got '".($row->{name} or '<NULL>')."'"
+        ." ".Dumper($row));
+
+    ok(select_row($DST_DBH,%value));
+    run_rsync($TABLE_TEST);
+    ok(!select_row($DST_DBH,%value),"Expecting different than ".join(" ",%value));
+    ok(select_row($DST_DBH,name => $new_name),"Expecting name = '$new_name'");
+    ok(select_row($DST_DBH,%value2));
+}
+
 
 SKIP: {
     eval { $SRC_DBH = DBI->connect("DBI:mysql:$SRC_DB",undef,undef
@@ -120,6 +155,9 @@ SKIP: {
 
     test_simple();
     test_update();
+    test_update(1);
+    test_update_two();
+    test_update_two(1);
 };
 
 done_testing();

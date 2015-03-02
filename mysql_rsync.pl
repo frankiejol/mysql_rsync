@@ -10,6 +10,7 @@ use Getopt::Long;
 my %TABLE;
 
 my $LIMIT = 10000;
+my $DRY_RUN;
 
 my ($SRC_HOST,$SRC_DB,$SRC_USER,$SRC_PASS) = ('localhost');
 my ($DST_HOST,$DST_DB,$DST_USER,$DST_PASS) = ('localhost');
@@ -20,7 +21,9 @@ chomp $MYSQLDUMP;
 my ($USAGE) = $0 =~ m{.*/(.*)};
 $USAGE = $0 if !$USAGE;
 
-$USAGE .=" [--help] [--verbose] [--mysqldump=$MYSQLDUMP] [--src-host=$SRC_HOST] --src-db=DB"
+$USAGE .=" [--help] [--verbose] [--mysqldump=$MYSQLDUMP]"
+    ." [--limit=$LIMIT] [--dry-run]"
+    ." [--src-host=$SRC_HOST] --src-db=DB"
     ." [--src-user=username] [--src-pass=pass] [--dst-host=HOST] [--dst-db=DB]"
     ." [--dst-user=username] [--dst-pass=pass]"
     ." [table1 ... tablen]";
@@ -31,6 +34,7 @@ GetOptions(
                help => \$help
              ,debug => \$DEBUG
           ,verbose  => \$VERBOSE
+       ,'dry-run|n' => \$DRY_RUN
     ,     mysqldump => \$MYSQLDUMP
     ,     'limit=s' => \$LIMIT
     ,  'src-host=s' => \$SRC_HOST
@@ -104,14 +108,22 @@ sub maxim_id {
 }
 
 sub sth_insert {
-    my ($dbh , $table, $row) = @_;
+    my ($dbh , $table, $row, $update) = @_;
+
     my $query = "INSERT INTO $table ("
         .join(" , ",sort keys %$row)." ) "
         ." VALUES ( "
         .join(" , ",map { '?' } keys %$row)
         ." )";
+
+    if ($update) {
+        $query = "UPDATE $table SET "
+            .join(" , ",map { "$_=?" } sort keys %$row)
+            ." WHERE $TABLE{$table}->{id}=?";
+    }
+    print "$query\n"    if $DEBUG;
     my $sth = $dbh->prepare($query);
-    insert_row($sth,$row);
+    insert_row($sth,$row, $update, $table);
     return $sth;
 }
 
@@ -134,6 +146,10 @@ sub search_tables {
 #                 print "$table : $row->{Field}\n";
                  $TABLE{$table}->{id} = $row->{Field};
             }
+            if ($row->{Key} && $row->{Null} eq 'NO'
+                    && $row->{Type} eq 'timestamp') {
+                $TABLE{$table}->{timestamp} = $row->{Field};
+            }
 #            for (sort keys %$row) {
 #                print "$_: $row->{$_}\n" if defined $row->{$_}
 #                                            && $row->{$_};
@@ -146,9 +162,14 @@ sub search_tables {
 }
 
 sub insert_row {
-    my ($sth_insert, $row) = @_;
+    my ($sth_insert, $row, $update, $table) = @_;
+    print "INSERT ROW ".join(" ",%$row)."\n" if $DEBUG;
+    return if $DRY_RUN;
+
     eval {
-        $sth_insert->execute(map { $row->{$_} } sort keys %$row) ;
+        my @row = map { $row->{$_} } sort keys %$row;
+        push @row,($row->{$TABLE{$table}->{id}})    if $update;
+        $sth_insert->execute(@row ) ;
     };
     if ($@ && $@ !~ /Duplicate entry/) {
         warn $sth_insert->err." ".$sth_insert->errstr." ".$@;
@@ -158,7 +179,9 @@ sub insert_row {
 }
 
 sub dump_wild {
-    my ($table,$id) = @_;
+    my ($table, $field, $update) = @_;
+
+    my $id = maxim_id($dbh_dst,$table, $field);
     $id = 0 if !defined $id;
 	
     my $time0 = time;
@@ -166,12 +189,12 @@ sub dump_wild {
     my $old_id=0;
 
     print "dump wild $table\n"  if $VERBOSE;
-    my $max = maxim_id($dbh_src,$table,$TABLE{$table}->{id});
-    my $n0 = $max - $id if $max;
+    my $max = maxim_id($dbh_src,$table,$field);
+    my $n0 = $max - $id if $max && $id =~ /^\d+$/;
     for (;;) {
         $id = 0 if !defined $id;
         my $sth = $dbh_src->prepare("SELECT * FROM $table "
-        ." WHERE $TABLE{$table}->{id} >= ? "
+        ." WHERE $field >= ? "
         ." LIMIT ".($LIMIT+1));
         $sth->execute($id);
         $old_id = $id;
@@ -181,12 +204,10 @@ sub dump_wild {
             return ;
         };
 
-        my $sth_insert = sth_insert($dbh_dst, $table, $row);
+        my $sth_insert = sth_insert($dbh_dst, $table, $row, $update);
         $dbh_dst->do("SET autocommit=0");
         while ( $row = $sth->fetchrow_hashref ) {
-            print "going to insert $table $TABLE{$table} : "
-                ."$row->{$TABLE{$table}} ? \n" if $DEBUG;
-            insert_row($sth_insert, $row);
+            insert_row($sth_insert, $row, $update, $table);
             $n++;
             if ( time - $time0 > 10) {
                 $time0 = time;
@@ -198,12 +219,13 @@ sub dump_wild {
                 }
                 print "$n inserted in $table $pc \n";
             }
-            $id = $row->{$TABLE{$table}->{id}};
+            $id = $row->{$field};
         }
         $sth_insert->finish;
         $sth ->finish;
         $dbh_dst->do("COMMIT");
-        return if $id <= $old_id or $n < $LIMIT;
+#        return if $id <= $old_id or $n < $LIMIT;
+        return if $n < $LIMIT;
     }
 }
 
@@ -213,8 +235,8 @@ search_tables(\@ARGV);
 
 for my $table ( sort keys %TABLE) {
     print "$table\n";
-    my $id = maxim_id($dbh_dst,$table, $TABLE{$table}->{id});
-    dump_wild($table,$id);
+    dump_wild($table,$TABLE{$table}->{id})              if $TABLE{$table}->{id};
+    dump_wild($table, $TABLE{$table}->{timestamp},1)    if $TABLE{$table}->{timestamp};
 }
 
 1;
