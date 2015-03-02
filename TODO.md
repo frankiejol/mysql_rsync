@@ -2,8 +2,6 @@
 
 ## Features
 
-- awk passwords
-- dump by timestamp
 - check changes in table columns
 - create tables without mysqldump
 
