@@ -94,12 +94,15 @@ sub ask_password {
 
 sub create_table {
     my $table = shift;
+    my ($dump_data) = (shift or 0);
+
     my @cmd = ($MYSQLDUMP
         ,'--skip-lock-tables'
         ,"-h",$SRC_HOST);
     push @cmd,('-u',$SRC_USER ) if $SRC_USER;
-    push @cmd,("-p$SRC_PASS" ) if $SRC_PASS;
-    push @cmd,('-d',$SRC_DB,$table);
+    push @cmd,("-p$SRC_PASS" )  if $SRC_PASS;
+    push @cmd,('-d')            if !$dump_data;
+    push @cmd,($SRC_DB,$table);
     print join (" ",@cmd)."\n"  if $VERBOSE;
     my ($in,$out,$err);
     run(\@cmd, \$in, \$out, \$err);
@@ -166,9 +169,11 @@ sub search_tables {
     $sth->execute;
     while (my ($table) = $sth->fetchrow) {
         next if $tables_list && !$table_req{$table};
+        delete $table_req{$table};
 
         my $sth_desc = $dbh_src->prepare("DESC $table");
         $sth_desc->execute;
+        $TABLE{$table} = {};
         while (my $row = $sth_desc->fetchrow_hashref ) {
             if ($row->{Key} && $row->{Key} eq 'PRI' ) {
 #                 print "$table : $row->{Field}\n";
@@ -187,6 +192,10 @@ sub search_tables {
         $sth_desc->finish;
     }
     $sth->finish;
+
+    if ($tables_list && keys %table_req) {
+        die "I can't find those tables: ".(join(",", sort keys %table_req))."\n";
+    }
 }
 
 sub insert_row {
@@ -236,7 +245,8 @@ sub dump_wild {
         $old_id = $id;
 
         my $row = $sth->fetchrow_hashref or do {
-            print "finish\n"    if $VERBOSE;
+            print "\t$n inserted in $table\n";
+            print "\tno ids bigger than $id\n"    if $VERBOSE;
             return ;
         };
 
@@ -253,7 +263,7 @@ sub dump_wild {
                     $pc =~ s/(\d+\.\d\d).*/$1/;
                     $pc .= " %";
                 }
-                print "$n inserted in $table $pc \n";
+                print "\t$n inserted in $table $pc \n";
             }
             $id = $row->{$field};
         }
@@ -261,9 +271,15 @@ sub dump_wild {
         $sth ->finish;
         $dbh_dst->do("COMMIT");
 #        return if $id <= $old_id or $n < $LIMIT;
-        print "$n inserted in $table\n";
+        print "\t$n inserted in $table\n";
         return if $n < $LIMIT || $id eq $old_id;
     }
+}
+
+sub dump_all {
+    my $table = shift;
+    print "\t$table dump\n";
+    create_table($table,1);
 }
 
 ###########################################
@@ -272,6 +288,10 @@ search_tables(\@ARGV);
 
 for my $table ( sort keys %TABLE) {
     print "$table\n";
+    if (! $TABLE{$table}->{id} && !$TABLE{$table}->{timestamp}) {
+        dump_all($table);
+        next;
+    }
     dump_wild($table,$TABLE{$table}->{id})              if $TABLE{$table}->{id};
     dump_wild($table, $TABLE{$table}->{timestamp},1)    if $TABLE{$table}->{timestamp};
 }
