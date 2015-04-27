@@ -73,8 +73,10 @@ my $dbh_src = DBI->connect("DBI:mysql:host=$SRC_HOST;database=$SRC_DB"
     ,$SRC_USER, $SRC_PASS,{ RaiseError => 1, PrintError => 0})
         or exit -2;
 my $dbh_dst = DBI->connect("DBI:mysql:host=$DST_HOST;database=$DST_DB"
-    ,$DST_USER, $DST_PASS,{RaiseError => 1, PrintError => 0 })
+    ,$DST_USER, $DST_PASS,{RaiseError => 0, PrintError => 0 })
         or exit -2;
+
+my $_SQL_INSERT;
 
 ##########################################
 
@@ -146,6 +148,7 @@ sub sth_insert {
             .join(" , ",map { "$_=?" } sort keys %$row)
             ." WHERE $TABLE{$table}->{id}=?";
     }
+    $_SQL_INSERT = $query;
     print "$query\n"    if $DEBUG;
     my $sth = $dbh->prepare($query);
     insert_row($sth,$row, $update, $table);
@@ -199,6 +202,8 @@ sub insert_row {
     };
     if ($@ && $@ !~ /Duplicate entry/) {
         warn $sth_insert->err." ".$sth_insert->errstr." ".$@;
+        warn "$_SQL_INSERT\n";
+        warn join(" , ",map { $row->{$_} } sort keys %$row )."\n";
         exit;
     }
     return $ok;
@@ -219,11 +224,15 @@ sub dump_wild {
     my $n0 = $max - $id if $max && $id =~ /^\d+$/;
     for (;;) {
         $id = 0 if !defined $id;
-        my $sth = $dbh_src->prepare("SELECT * FROM $table "
-        ." WHERE $field >= ? "
-        ." LIMIT ".($LIMIT+1));
-        print "SELECT FROM $table WHERE $field >= $id\n"    if $DEBUG;
-        $sth->execute($id);
+        my $query = "SELECT * FROM $table "
+        ." WHERE `$field` >= ? "
+        ." LIMIT ".($LIMIT+1);
+        my $sth = $dbh_src->prepare($query);
+        print "$query\n"    if $DEBUG;
+        eval { $sth->execute($id) };
+        if ($@) {
+            die "$@\n$query\n$field=$id\n";
+        }
         $old_id = $id;
 
         my $row = $sth->fetchrow_hashref or do {
